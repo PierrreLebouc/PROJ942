@@ -5,11 +5,11 @@ from matplotlib import pyplot as plt
 import os
 
 
-output_dir = "test"
+output_dir = "/Users/pedron/Desktop/Polytech/PROJ942/test"
 os.makedirs(output_dir, exist_ok=True)
 
-output_path = os.path.join(output_dir, "02.pgm")
-path = "/Users/pedron/Desktop/Polytech/PROJ942/PROJ942/IMG_6434.JPG"
+output_path = os.path.join(output_dir, "03.pgm")
+path = "/Users/pedron/Desktop/Polytech/PROJ942/IMG_6435.JPG"
 img = cv2.imread(path)
 
 height, width, depth = img.shape
