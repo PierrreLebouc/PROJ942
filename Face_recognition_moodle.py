@@ -178,6 +178,20 @@ def main():
 
     print(f"Chargement de la base de visages depuis {dataset_path} ...")
     X, y, label_names = read_images(dataset_path)
+
+    # Associe certains dossiers Sxx à des noms lisibles pour l'annonce.
+    friendly_names = {
+            "S41": "Bach-Char",
+            "S42": "Tomy",
+            "S43": "Axel",
+            "S44": "Pierre",
+    }
+
+    def describe_label(label_idx):
+        raw = label_names[label_idx] if 0 <= label_idx < len(label_names) else str(label_idx)
+        alias = friendly_names.get(raw, raw)
+        return alias, raw in friendly_names
+
     image_height, image_width = X[0].shape
     print(f"{len(X)} images chargées pour {len(label_names)} personnes.")
     print(f"Taille des images: {image_width}x{image_height} (LxH).")
@@ -185,14 +199,10 @@ def main():
     num_components = min(150, len(X)) #“Limite le nombre de composantes PCA pour éviter le surajustement et respecter le nombre d’images.”
     model = EigenfacesModel(X, y, num_components=num_components)
 
-    def describe_label(label_idx):
-        return label_names[label_idx] if 0 <= label_idx < len(label_names) else str(label_idx)
-
     target_size = (image_width, image_height)
     if not test_path.is_dir():
         raise ValueError(f"Dossier de test introuvable: {test_path}")
-    
-#Charge chaque image test à la même taille que l’entraînement, projette et affiche la classe prédite.
+    # Charge chaque image test à la même taille que l’entraînement, projette et affiche la classe prédite.
     for img_path in sorted(p for p in test_path.iterdir() if p.is_file()):
         try:
             test_image = load_image_as_array(img_path, target_size=target_size)
@@ -200,8 +210,12 @@ def main():
             print(f"Lecture impossible pour {img_path}: {exc}")
             continue
         prediction = model.predict(test_image)
-        predicted_name = describe_label(prediction)
-        print(f"{img_path.name} -> classe prédite {predicted_name} (id {prediction})")
+        predicted_name, is_friendly = describe_label(prediction)
+        if is_friendly:
+            print(f"{img_path.name} -> {predicted_name} détecté !")
+        else:
+            print(f"{img_path.name} -> classe prédite {predicted_name} (id {prediction})")
+
 
 
 if __name__ == "__main__":
