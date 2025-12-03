@@ -1,6 +1,8 @@
-import errno
-import sys
-import os
+# test programm 
+
+from pathlib import Path
+from typing import Callable, Optional, Tuple
+
 # import numpy and matplotlib colormaps
 import numpy as np
 from PIL import Image
@@ -13,29 +15,51 @@ import cv2
 
 ############
 
-def read_images (path , sz= None ):
-    c = 0
-    X,y = [], []
-    for dirname, dirnames, filenames in os.walk(path):
-        dirnames.sort()
-        for subdirname in dirnames :
-            subject_path = os.path.join(dirname, subdirname )
-            for filename in os.listdir(subject_path ):
-                try :
-                    im = Image.open(os.path.join (subject_path , filename ))
-                    im = im.convert ("L")
-                    # resize to given size (if given )
-                    if (sz is not None ):
-                        im = im.resize(sz , Image.ANTIALIAS )
-                    X.append (np.asarray (im , dtype =np.uint8 ))
-                    y.append (c)
-                except IOError :
-                    print("I/O error ({0}) : {1} ".format(errno , os.strerror ))
-                except :
-                    print(" Unexpected error :", sys.exc_info() [0])
-                    raise
-            c = c+1
-    return [X,y]
+PreprocessFn = Callable[[Path, Optional[Tuple[int, int]]], Optional[np.ndarray]]
+
+
+def read_images(path, sz=None, preprocess_fn: Optional[PreprocessFn] = None):
+    base_path = Path(path)
+    if not base_path.is_dir():
+        raise ValueError(f"Chemin base images invalide: {base_path}")
+
+    X, y, label_names = [], [], []
+    for label, subject_dir in enumerate(sorted(d for d in base_path.iterdir() if d.is_dir())):
+        label_names.append(subject_dir.name)
+        for image_path in sorted(p for p in subject_dir.iterdir() if p.is_file()):
+            prepared = None
+            if preprocess_fn is not None:
+                try:
+                    prepared = preprocess_fn(image_path, sz)
+                except Exception as exc:  # pragma: no cover - diagnostic aide
+                    print(f"Prétraitement échoué pour {image_path}: {exc}")
+                    prepared = None
+            if prepared is not None:
+                X.append(prepared)
+                y.append(label)
+                continue
+
+            try:
+                with Image.open(image_path) as im:
+                    im = im.convert("L")
+                    if sz is not None:
+                        im = im.resize(sz, RESAMPLE)
+                    X.append(np.asarray(im, dtype=np.uint8))
+                    y.append(label)
+            except Exception as exc:
+                print(f"Impossible de charger {image_path}: {exc}")
+    if not X:
+        raise RuntimeError(f"Aucune image valide trouvée sous {base_path}")
+    return X, y, label_names
+
+
+def load_image_as_array(image_path, target_size=None):
+    image_path = Path(image_path)
+    with Image.open(image_path) as im:
+        im = im.convert("L")
+        if target_size is not None and im.size != target_size:
+            im = im.resize(target_size, RESAMPLE)
+        return np.asarray(im, dtype=np.uint8)
     
 def asRowMatrix (X):
     if len (X) == 0:
@@ -92,12 +116,16 @@ def reconstruct (W, Y, mu= None ):
 def normalize (X, low , high , dtype = None ):
     X = np.asarray (X)
     minX , maxX = np.min (X), np.max (X)
-    # normalize to [0...1].
-    X = X - float ( minX )
-    X = X / float (( maxX - minX ))
-    # scale to [ low...high ].
-    X = X * (high - low )
-    X = X + low
+    rangeX = float(maxX - minX)
+    if rangeX < 1e-12:
+        X = np.full_like(X, low, dtype=np.float32)
+    else:
+        # normalize to [0...1].
+        X = X - float(minX)
+        X = X / rangeX
+        # scale to [ low...high ].
+        X = X * (high - low)
+        X = X + low
     if dtype is None :
         return np.asarray (X)
     return np.asarray (X, dtype = dtype )
@@ -188,82 +216,117 @@ class EigenfacesModel ( BaseModel ):
         for xi in X:
             self.projections.append ( project ( self.W, xi.reshape (1 , -1) , self.mu))            
 
+
 ##########################
 ##########################
 # main
-        
-# read all images within the database 
-        
-# append tinyfacerec to module search path
-sys.path.append ("..")
-
-# !! PATH to change
-# don't forget \\
-# X = image list
-# y = image labels
-print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-print("ATTENTION, pensez bien à changer le chemin d'accès à la base d'images !!")
-print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-[X,y] = read_images ("E:\\_Proj942\\2019\\Base_visages")
-
-##############
-# example 1 showing image 'n'
-num_image = 0
-titre = "image "+ str(num_image)
-cv2.imshow(titre,X[num_image])
-cv2.waitKey(0)
 
 
-##############
-# perform a full pca
-# D = eigenvalues , W = eigenvectors , mu = mean
-[D, W, mu] = pca ( asRowMatrix(X), y)
+def main():
+    project_root = Path(__file__).resolve().parent
+    dataset_path = project_root / "Base_Visages"
+    print(f"Chargement de la base de visages depuis {dataset_path} ...")
 
-##############
-# Exemple 2 showing 16 eigenvectors from first_eigenvector to last_eigenvector
-# ( note : eigenvectors are stored by column, so reshape is necessary ! )
-E = []
-first_eigenvector = 0
-nb_eigenvectors = W.shape[1]
-first_eigenvector = min(first_eigenvector,nb_eigenvectors)
-last_eigenvector = min(first_eigenvector + 16,nb_eigenvectors)
+    X, y, label_names = read_images(dataset_path)
+    image_height, image_width = X[0].shape
+    print(f"{len(X)} images chargées pour {len(label_names)} personnes.")
+    print(f"Taille des images: {image_width}x{image_height} (LxH).")
 
-for i in range(first_eigenvector, last_eigenvector,1) :
-    e = W[:,i].reshape(X [0].shape)
-    E.append( normalize (e ,0 ,255) )
-# plot them and store the plot to " python_eigenfaces.png"
-#subplot ( title =" Eigenfaces AT&T Facedatabase ", images = E, rows =4, cols =4, sptitle =" Eigenface", colormap =cm.jet , filename ="python_pca_eigenfaces.png")
-subplot ( title =str(16)+" Eigenfaces (AT&T Facedatabase) ", images = E, rows =4, cols =4, sptitle =" Eigenface", filename ="python_pca_eigenfaces.png")
-
-##############
-# Example 3 : reconstruction steps
-#
-steps =[i for i in range(10 , min (len(X), 320) , 20)]
-E = []
-
-for i in range (min(len(steps),16)):
-    numEvs = steps[i]
-    P = project(W[:,0: numEvs],X[num_image].reshape(1,-1),mu)
-    R = reconstruct(W[:,0:numEvs],P,mu)
-    #reshape and append to plots
-    R = R.reshape(X[num_image].shape)
-    E.append( normalize (R ,0 ,255) )
-# plot them and store the plot to " python_reconstruction.png "
-subplot ( title =" Reconstruction (AT&T Facedatabase) ", images =E, rows =4, cols =4, sptitle ="Eigenvectors", sptitles =steps , colormap =cm.gray , filename ="python_pca_reconstruction.png")
-
-##############
-# Example 4 : get a prediction with different images. Take care, if class = n, directory is n+1 in database 
-list_ima = ["cl_14_im_0.pgm","cl_0_im_3_a.jpg","cl_0_im_3_b.jpg","cl_26_im_5_a.jpg","cl_26_im_5_b.jpg","cl_26_im_5_c.jpg"]
-expected_class = [14,0,0,26,26,26]
-for i in range(0, len(list_ima)):
-    imtest = Image.open(list_ima[i])
-    imtest = imtest.convert ("L")
-    test = np.asarray (imtest , dtype =np.uint8 )
-    cv2.imshow(list_ima[i],test)
+    # Example 1: afficher une image de la base
+    num_image = 0
+    titre = f"image {num_image} - classe {label_names[y[num_image]]}"
+    cv2.imshow(titre, X[num_image])
     cv2.waitKey(0)
-    # model computation
-    model = EigenfacesModel (X , y)
-    print(" expected = ", expected_class[i], " / predicted =", model.predict(test))
 
-cv2.destroyAllWindows()
+    # Exemple 2: calcul PCA / eigenfaces
+    D, W, mu = pca(asRowMatrix(X), y)
+    eigen_count = min(16, W.shape[1])
+    eigenfaces = []
+    for i in range(eigen_count):
+        e = W[:, i].reshape(X[0].shape)
+        eigenfaces.append(normalize(e, 0, 255))
+    subplot(
+        title=f"{eigen_count} Eigenfaces (Base_Visages)",
+        images=eigenfaces,
+        rows=4,
+        cols=4,
+        sptitle="Eigenface",
+        filename="python_pca_eigenfaces.png",
+    )
 
+    # Exemple 3: reconstruction progressive
+    max_components = min(W.shape[1], len(X))
+    steps = [i for i in range(10, max_components, 20)]
+    if not steps:
+        steps = list(range(1, min(max_components, 5) + 1))
+    reconstructions = []
+    for numEvs in steps[:16]:
+        P = project(W[:, 0:numEvs], X[num_image].reshape(1, -1), mu)
+        R = reconstruct(W[:, 0:numEvs], P, mu).reshape(X[num_image].shape)
+        reconstructions.append(normalize(R, 0, 255))
+    subplot(
+        title="Reconstruction (Base_Visages)",
+        images=reconstructions,
+        rows=4,
+        cols=4,
+        sptitle="Eigenvectors",
+        sptitles=steps[: len(reconstructions)],
+        colormap=cm.gray,
+        filename="python_pca_reconstruction.png",
+    )
+
+    # Exemple 4: prédiction sur un petit jeu de test
+    model = EigenfacesModel(X, y, num_components=min(150, len(X)))
+
+    def describe_label(label_idx):
+        return label_names[label_idx] if 0 <= label_idx < len(label_names) else str(label_idx)
+
+    test_samples = []
+    for label, subject_dir in enumerate(sorted(d for d in dataset_path.iterdir() if d.is_dir())):
+        candidates = sorted(p for p in subject_dir.iterdir() if p.is_file())
+        if not candidates:
+            continue
+        test_samples.append((candidates[0], label))
+        if len(test_samples) >= 5:
+            break
+
+    external_test_dir = project_root / "Images de test du programme de reconnaissance de visages-20251013"
+    if external_test_dir.is_dir():
+        external_expectations = {
+            "cl_14_im_0.pgm": 14,
+            "cl_0_im_3_a.jpg": 0,
+            "cl_0_im_3_b.jpg": 0,
+            "cl_26_im_5_a.jpg": 26,
+            "cl_26_im_5_b.jpg": 26,
+            "cl_26_im_5_c.jpg": 26,
+            "cl_44_im_0.pgm": 44,
+            "cl_41_im_0.pgm": 41,
+            "cl_43.pgm": 43,
+        }
+        for filename, expected in external_expectations.items():
+            img_path = external_test_dir / filename
+            if img_path.exists():
+                test_samples.append((img_path, expected))
+
+    target_size = (image_width, image_height)
+    for img_path, expected_label in test_samples:
+        try:
+            test_image = load_image_as_array(img_path, target_size=target_size)
+        except Exception as exc:
+            print(f"Lecture impossible pour {img_path}: {exc}")
+            continue
+        prediction = model.predict(test_image)
+        expected_name = describe_label(expected_label)
+        predicted_name = describe_label(prediction)
+        print(
+            f"{img_path.name} -> attendu {expected_name} "
+            f"(classe {expected_label}) / prédit {predicted_name} (classe {prediction})"
+        )
+        cv2.imshow(f"test {img_path.name}", test_image)
+        cv2.waitKey(0)
+
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
