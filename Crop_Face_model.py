@@ -2,24 +2,30 @@ import numpy as np
 import cv2
 import requests
 from matplotlib import pyplot as plt
+import os
 
 
-# reading an image
-url = "https://raw.githubusercontent.com/PierrreLebouc/PROJ942/main/Bill_Gates.jpg"
-response = requests.get(url)
-image_array = np.asarray(bytearray(response.content), dtype=np.uint8)
-img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+output_dir = "/Users/pedron/Desktop/Polytech/PROJ942/test"
+os.makedirs(output_dir, exist_ok=True)
 
-#im = cv2.imread(img)
+output_path = os.path.join(output_dir, "03.pgm")
+path = "/Users/pedron/Desktop/Polytech/PROJ942/IMG_6435.JPG"
+img = cv2.imread(path)
 
 height, width, depth = img.shape
 print(height, width, depth)
 cv2.imshow('original',img)
 cv2.waitKey(0)
+print("Image de base")
 
 gray_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 gray_image.shape
 cv2.imshow('grey',gray_image)
+cv2.waitKey(0)
+print("Image Grise")
+
+resize_1 = cv2.resize(gray_image, (600, 800)) 
+cv2.imshow('resize_1',resize_1)
 cv2.waitKey(0)
 
 #load the pre-trained classifier
@@ -29,26 +35,28 @@ face_classifier = cv2.CascadeClassifier(
 
 #perform the classifier
 face = face_classifier.detectMultiScale(
-    gray_image, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
+    resize_1, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
 )
 
-x1 = face[0][0] - 10
-y1 = face[0][1] - 10
-x2 = face[0][0] + face[0][2] + 10
-y2 = face[0][1] + face[0][3] + 10
+x1 = face[0][0] - round(face[0][2] / 48)
+y1 = face[0][1] - round(face[0][2] / 6)
+x2 = face[0][0] + face[0][2] + round(face[0][2] / 48)
+y2 = face[0][1] + face[0][3] + round(face[0][2] / 6)
 
-cropped_image = gray_image[y1:y2, x1:x2]
+print(round(face[0][2] / 48))
+print(round(face[0][2] / 6))
+
+cropped_image = resize_1[y1:y2, x1:x2]
 cv2.imshow('cropped',cropped_image)
 cv2.waitKey(0)
 
-
-
-for (x, y, w, h) in face:
-    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 4)
-
-    
-img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-cv2.imshow('final',img_rgb)
+final = cv2.resize(cropped_image, (92, 112)) 
+print("Image redimensionnée à :", final.shape[:2])
+cv2.imshow('resized',final)
 cv2.waitKey(0)
+
+cv2.imwrite(output_path, final)
+
+print("Image sauvegardée dans :", output_path)
 
 cv2.destroyAllWindows()
