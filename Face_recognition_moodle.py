@@ -13,11 +13,6 @@ import matplotlib.cm as cm
 
 import cv2
 
-try:
-    RESAMPLE = Image.Resampling.LANCZOS
-except AttributeError:
-    RESAMPLE = Image.ANTIALIAS
-
 ############
 
 PreprocessFn = Callable[[Path, Optional[Tuple[int, int]]], Optional[np.ndarray]]
