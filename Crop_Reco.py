@@ -1,7 +1,10 @@
-# Facial recognition with Eigenfaces
+import numpy as np
+import cv2
+import requests
+from matplotlib import pyplot as plt
+import os
 from pathlib import Path
 from typing import Callable, Optional, Tuple
-import numpy as np
 from PIL import Image
 
 base_path = "/Users/pedron/Desktop/Polytech/PROJ942/Base/IMG_1.JPG"
@@ -235,7 +238,7 @@ class BaseModel(object):
     def compute(self, X, y):
         raise NotImplementedError(" Every BaseModel must implement the compute method.")
 
-    def predict(self, X, return_confidence=False):
+    def predict(self, X,return_confidence=False):
         """Retourne le label prédit et un score de ressemblance (0-1) si demandé.
 
         Le score compare la distance au centroïde de la classe prédite à la
@@ -281,7 +284,20 @@ class EigenfacesModel(BaseModel):
         self.y = y
         for xi in X:
             self.projections.append(project(self.W, xi.reshape(1, -1), self.mu))
-
+        # Calcule un centroïde par classe et la distance intra-classe moyenne
+        label_to_projs = {}
+        for proj, label in zip(self.projections, self.y):
+            label_to_projs.setdefault(label, []).append(proj)
+        for label, projs in label_to_projs.items():
+            self.class_centroids[label] = np.mean(np.vstack(projs), axis=0)
+        intra_sum = 0.0
+        count = 0
+        for label, projs in label_to_projs.items():
+            centroid = self.class_centroids[label]
+            for proj in projs:
+                intra_sum += self.dist_metric(proj, centroid)
+                count += 1
+        self.avg_intra_dist = intra_sum / count if count else 1.0
 
 def recongnition():
     # La constante data_root : “Chemin racine des données (à adapter si la base est déplacée).”
@@ -294,7 +310,9 @@ def recongnition():
     }
 
     def describe_label(label_idx):
-        raw = label_names[label_idx] if 0 <= label_idx < len(label_names) else str(label_idx)
+        if label_idx is None or label_idx < 0 or label_idx >= len(label_names):
+            return "Inconnu", False
+        raw = label_names[label_idx]
         alias = friendly_names.get(raw, raw)
         return alias, raw in friendly_names
 
@@ -303,6 +321,8 @@ def recongnition():
     print(f"Taille des images: {image_width}x{image_height} (LxH).")
 
     num_components = min(150, len(X)) #“Limite le nombre de composantes PCA pour éviter le surajustement et respecter le nombre d’images.”
+    similarity_threshold = 0.30   # exige au moins 30% de ressemblance normalisée
+    ratio_threshold = 1.03        # la meilleure distance doit être 3% plus faible que la 2e
     model = EigenfacesModel(X, y, num_components=num_components)
 
     target_size = (image_width, image_height)
@@ -321,12 +341,16 @@ def recongnition():
         except Exception as exc:
             print(f"Lecture impossible pour {img_path}: {exc}")
             continue
-        prediction = model.predict(test_image)
+        prediction, similarity, ratio = model.predict(test_image, return_confidence=True)
+        is_strong_enough = (similarity >= similarity_threshold) and (ratio >= ratio_threshold)
+        if not is_strong_enough:
+            prediction = -1  # forcer "Inconnu"
+        similarity_pct = round(similarity * 100, 1)
         predicted_name, is_friendly = describe_label(prediction)
         if is_friendly:
-            print(f"{img_path.name} -> {predicted_name} détecté !")
+            print(f"{img_path.name} -> {predicted_name} détecté ! ({similarity_pct}% ressemblance)")
         else:
-            print(f"{img_path.name} -> classe prédite {predicted_name} (id {prediction})")
+            print(f"{img_path.name} -> classe prédite {predicted_name} (id {prediction},{similarity_pct}% ressemblance)")
 
 
 
