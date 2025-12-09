@@ -1,10 +1,7 @@
-import numpy as np
-import cv2
-import requests
-from matplotlib import pyplot as plt
-import os
+# Facial recognition with Eigenfaces
 from pathlib import Path
 from typing import Callable, Optional, Tuple
+import numpy as np
 from PIL import Image
 
 base_path = "/Users/pedron/Desktop/Polytech/PROJ942/Base/IMG_1.JPG"
@@ -228,6 +225,8 @@ class BaseModel(object):
         self.dist_metric = dist_metric
         self.num_components = num_components
         self.projections = []
+        self.class_centroids = {}
+        self.avg_intra_dist = 1.0
         self.W = []
         self.mu = []
         if (X is not None) and (y is not None):
@@ -236,16 +235,41 @@ class BaseModel(object):
     def compute(self, X, y):
         raise NotImplementedError(" Every BaseModel must implement the compute method.")
 
-    def predict(self, X):
+    def predict(self, X, return_confidence=False):
+        """Retourne le label prédit et un score de ressemblance (0-1) si demandé.
+
+        Le score compare la distance au centroïde de la classe prédite à la
+        distance intra-classe moyenne observée à l'entraînement. Ce n'est pas
+        une proba calibrée mais une mesure de ressemblance. Retourne aussi le
+        ratio best/second-best pour juger la netteté de la décision.
+        """
         minDist = np.finfo("float").max
         minClass = -1
+        secondDist = np.finfo("float").max
         Q = project(self.W, X.reshape(1, -1), self.mu)
-        for i in range(len(self.projections)):
-            dist = self.dist_metric(self.projections[i], Q)
+        for i, projection in enumerate(self.projections):
+            dist = self.dist_metric(projection, Q)
+            label = self.y[i]
             if dist < minDist:
+                secondDist = minDist
                 minDist = dist
-                minClass = self.y[i]
-        return minClass
+                minClass = label
+            elif dist < secondDist:
+                secondDist = dist
+
+        if not return_confidence:
+            return minClass
+
+        centroid = self.class_centroids.get(minClass)
+        if centroid is None:
+            return minClass, 0.0
+        d_to_centroid = self.dist_metric(Q, centroid)
+        scale = self.avg_intra_dist if self.avg_intra_dist > 1e-9 else 1.0
+        similarity = 1.0 / (1.0 + (d_to_centroid / scale))
+        similarity = float(np.clip(similarity, 0.0, 1.0))
+        # Ratio best/second-best : plus il est grand, plus la décision est nette.
+        ratio = secondDist / minDist if minDist > 0 else float("inf")
+        return minClass, similarity, ratio
 
 
 class EigenfacesModel(BaseModel):
