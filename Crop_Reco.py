@@ -12,6 +12,18 @@ output_dir = "/Users/pedron/Desktop/Polytech/PROJ942/Images_de_test"
 os.makedirs(output_dir, exist_ok=True)
 output_path = os.path.join(output_dir, "1.pgm")
 
+data_root = Path("/Users/pedron/Desktop/Polytech/PROJ942")
+dataset_path = data_root / "Base_Visages"
+test_path = data_root / "Images_de_test"
+
+
+def read_image(path):
+    img = cv2.imread(path)
+    height, width, depth = img.shape
+    return img
+
+
+
 
 
 
@@ -19,20 +31,12 @@ output_path = os.path.join(output_dir, "1.pgm")
 #                                    Crop image
 # -----------------------------------------------------------------------------------
 
-
-
-
-
 def crop_image(img):
     gray_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray_image.shape
-    cv2.imshow('grey',gray_image)
-    cv2.waitKey(0)
-    print("Image Grise")
 
     resize_1 = cv2.resize(gray_image, (600, 800)) 
-    cv2.imshow('resize_1',resize_1)
-    cv2.waitKey(0)
+    
 
     #load the pre-trained classifier
     face_classifier = cv2.CascadeClassifier(
@@ -49,22 +53,36 @@ def crop_image(img):
     x2 = face[0][0] + face[0][2] + round(face[0][2] / 48)
     y2 = face[0][1] + face[0][3] + round(face[0][2] / 6)
 
-    print(round(face[0][2] / 48))
-    print(round(face[0][2] / 6))
-
     cropped_image = resize_1[y1:y2, x1:x2]
-    cv2.imshow('cropped',cropped_image)
-    cv2.waitKey(0)
 
     final = cv2.resize(cropped_image, (92, 112)) 
     print("Image redimensionnée à :", final.shape[:2])
-    cv2.imshow('resized',final)
-    cv2.waitKey(0)
     
+    return final
 
-    cv2.imwrite(output_path, final)
-    print("Image sauvegardée dans :", output_path)
-    cv2.destroyAllWindows()
+def crop_image_creation(img):
+    gray_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray_image.shape
+
+    resize_1 = cv2.resize(gray_image, (600, 800)) 
+
+    #load the pre-trained classifier
+    face_classifier = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    )
+
+    #perform the classifier
+    face = face_classifier.detectMultiScale(
+        resize_1, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)
+    )
+
+    x1 = face[0][0] - round(face[0][2] / 48)
+    y1 = face[0][1] - round(face[0][2] / 6)
+    x2 = face[0][0] + face[0][2] + round(face[0][2] / 48)
+    y2 = face[0][1] + face[0][3] + round(face[0][2] / 6)
+
+    cropped_image = resize_1[y1:y2, x1:x2]
+    final = cv2.resize(cropped_image, (92, 112)) 
     
     return final
 
@@ -78,13 +96,6 @@ def crop_image(img):
 # -----------------------------------------------------------------------------------
 #                                  Recognition 
 # -----------------------------------------------------------------------------------
-
-
-
-
-
-
-
 
 try:
     RESAMPLE = Image.Resampling.LANCZOS
@@ -128,17 +139,6 @@ def read_images(path, sz=None, preprocess_fn: Optional[PreprocessFn] = None):
     if not X:
         raise RuntimeError(f"Aucune image valide trouvée sous {base_path}")
     return X, y, label_names
-
-
-def read_image(path):
-    img = cv2.imread(path)
-    height, width, depth = img.shape
-    print(height, width, depth)
-    cv2.imshow('original',img)
-    cv2.waitKey(0)
-    print("Image de base")
-    
-    return img
 
 
 def load_image_as_array(image_path, target_size=None):
@@ -259,25 +259,14 @@ class EigenfacesModel(BaseModel):
             self.projections.append(project(self.W, xi.reshape(1, -1), self.mu))
 
 
-# “Charge la base Base_Visages, entraîne Eigenfaces,
-#  puis parcourt Images_de_test pour prédire et afficher les labels.”
-
-
-def main():
+def recongnition():
     # La constante data_root : “Chemin racine des données (à adapter si la base est déplacée).”
-    data_root = Path("/Users/pedron/Desktop/Polytech/PROJ942")
-    dataset_path = data_root / "Base_Visages"
-    test_path = data_root / "Images_de_test"
 
     print(f"Chargement de la base de visages depuis {dataset_path} ...")
     X, y, label_names = read_images(dataset_path)
 
     # Associe certains dossiers Sxx à des noms lisibles pour l'annonce.
     friendly_names = {
-            "s41": "Bach-Char",
-            "s42": "Tomy",
-            "s43": "Axel",
-            "s44": "Pierre",
     }
 
     def describe_label(label_idx):
@@ -297,9 +286,10 @@ def main():
         raise ValueError(f"Dossier de test introuvable: {test_path}")
     # Charge chaque image test à la même taille que l’entraînement, projette et affiche la classe prédite.
     
-    
     base = read_image(base_path)
-    crop_image(base)
+    cropped = crop_image(base)
+    
+    cv2.imwrite(output_path, cropped)
     
     for img_path in sorted(p for p in test_path.iterdir() if p.is_file()):
         try:
@@ -314,5 +304,48 @@ def main():
         else:
             print(f"{img_path.name} -> classe prédite {predicted_name} (id {prediction})")
 
+
+
+
+
+
+
+# -----------------------------------------------------------------------------------
+#                                     Creation
+# -----------------------------------------------------------------------------------
+
+def creation_base(name):
+    
+    name = name.capitalize()
+    # La constante data_root : “Chemin racine des données (à adapter si la base est déplacée).”
+
+    base = read_image(base_path)
+    cropped = crop_image_creation(base)
+    
+    person_dir = dataset_path / name
+    
+    if not person_dir.exists():
+        print(f"Création d’un nouveau dossier : {person_dir}")
+        person_dir.mkdir(parents=True, exist_ok=True)
+        next_index = 1
+    else:
+        print(f"Dossier trouvé : {person_dir}")
+
+        # Trouve les fichiers .pgm existants et calcule l’index suivant
+        existing_files = [f for f in os.listdir(person_dir) if f.endswith(".pgm")]
+
+        if existing_files:
+            # Ex : "1.pgm" → 1
+            indices = [int(f.split(".")[0]) for f in existing_files]
+            next_index = max(indices) + 1
+        else:
+            next_index = 1
+    
+    output_path_creation = person_dir / f"{next_index}.pgm"
+    
+    cv2.imwrite(output_path_creation, cropped)
+    print("Image sauvegardée dans :", output_path_creation)
+
+
 if __name__ == "__main__":
-    main()
+    creation_base("tomy")
